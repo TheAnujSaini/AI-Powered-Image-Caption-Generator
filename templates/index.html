@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AI Image Caption Generator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- Bootstrap + Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet">
+
+  <style>
+    :root {
+      --light-bg: #f2f5f7;
+      --dark-bg: #121212;
+      --neumorph-light: #ffffff;
+      --neumorph-dark: #1f1f1f;
+      --neumorph-shadow: rgba(0, 0, 0, 0.2);
+      --primary-color: #0dcaf0;
+    }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: var(--light-bg);
+      color: #333;
+      transition: background 0.4s ease, color 0.4s ease;
+    }
+
+    .dark-mode {
+      background: var(--dark-bg);
+      color: #f1f1f1;
+    }
+
+    .container-card {
+      max-width: 90%;
+      margin: 4rem auto;
+      padding: 2.5rem;
+      border-radius: 25px;
+      background: var(--neumorph-light);
+      box-shadow: 10px 10px 30px var(--neumorph-shadow), -10px -10px 30px #fff;
+      transition: all 0.4s ease;
+    }
+
+    .dark-mode .container-card {
+      background: var(--neumorph-dark);
+      box-shadow: 10px 10px 30px #000, -10px -10px 30px #1f1f1f;
+    }
+
+    h2 {
+      font-size: 2.4rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+
+    .drop-zone {
+      border: 2px dashed #999;
+      border-radius: 15px;
+      padding: 30px;
+      text-align: center;
+      cursor: pointer;
+      background: #eaf1f6;
+    }
+
+    .dark-mode .drop-zone {
+      background: #2a2a2a;
+    }
+
+    .drop-zone.dragover {
+      border-color: var(--primary-color);
+    }
+
+    #preview {
+      max-width: 100%;
+      margin-top: 25px;
+      display: none;
+      border-radius: 20px;
+    }
+
+    .btn-glow {
+      background: var(--primary-color);
+      color: #fff;
+      font-weight: 600;
+      border: none;
+      padding: 10px 25px;
+      border-radius: 50px;
+      box-shadow: 0 0 12px rgba(13, 202, 240, 0.6);
+      transition: all 0.3s ease-in-out;
+    }
+
+    .btn-glow:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 20px rgba(13, 202, 240, 0.8);
+    }
+
+    .caption-box {
+      margin-top: 30px;
+      text-align: center;
+    }
+
+    .theme-toggle {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 999;
+    }
+
+    @media (max-width: 768px) {
+      .container-card {
+        padding: 1.5rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Theme Toggle Button -->
+  <div class="theme-toggle">
+    <button id="toggleTheme" class="btn btn-dark btn-sm">
+      <i class="bi bi-moon-fill"></i>
+    </button>
+  </div>
+
+  <!-- Main Container -->
+  <div class="container-card">
+    <h2 class="text-center mb-4">🤖 AI-Powered Image Caption Generator</h2>
+
+    <form method="POST" enctype="multipart/form-data" id="uploadForm">
+      <div class="drop-zone" id="dropZone">
+        <p class="mb-0">Drag & drop or click to select an image</p>
+        <input type="file" name="image" id="imageInput" accept="image/*" hidden required>
+      </div>
+
+      <img id="preview" alt="Preview Image">
+      <input type="hidden" name="croppedImage" id="croppedImageData">
+
+      <div class="text-center mt-4">
+        <button class="btn btn-glow" type="submit">
+          <i class="bi bi-lightbulb"></i> Generate Caption
+        </button>
+        <div class="spinner-border text-primary mt-3" id="loadingSpinner" role="status" style="display:none;"></div>
+      </div>
+    </form>
+
+    {% if image_path %}
+    <div class="caption-box">
+      <img src="{{ image_path }}" class="img-fluid mt-4 mb-3 rounded" style="max-height: 450px;">
+      <p class="fw-bold fs-4" id="captionText">{{ caption }}</p>
+
+      <button class="btn btn-outline-info btn-sm me-2" onclick="speakCaption()">
+        <i class="bi bi-volume-up"></i> Speak
+      </button>
+      <button class="btn btn-outline-info btn-sm" onclick="copyCaption()">
+        <i class="bi bi-clipboard"></i> Copy
+      </button>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Scripts -->
+  <script>
+    const dropZone = document.getElementById('dropZone');
+    const imageInput = document.getElementById('imageInput');
+    const preview = document.getElementById('preview');
+    const form = document.getElementById('uploadForm');
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    let cropper;
+
+    dropZone.addEventListener('click', () => imageInput.click());
+    dropZone.addEventListener('dragover', e => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      imageInput.files = e.dataTransfer.files;
+      previewImage(imageInput.files[0]);
+    });
+
+    imageInput.addEventListener('change', () => {
+      previewImage(imageInput.files[0]);
+    });
+
+    function previewImage(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        preview.src = e.target.result;
+        preview.style.display = 'block';
+      };
+      reader.readAsDataURL(file);
+    }
+
+    form.addEventListener('submit', function () {
+      loadingSpinner.style.display = 'inline-block';
+    });
+
+    document.getElementById('toggleTheme').addEventListener('click', () => {
+      document.body.classList.toggle('dark-mode');
+    });
+
+    function speakCaption() {
+      const text = document.getElementById('captionText').innerText;
+      const msg = new SpeechSynthesisUtterance(text);
+      msg.lang = 'en-US';
+      window.speechSynthesis.speak(msg);
+    }
+
+    function copyCaption() {
+      const text = document.getElementById('captionText').innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        alert('Caption copied!');
+      });
+    }
+  </script>
+
+</body>
+</html>
